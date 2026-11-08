@@ -10,8 +10,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Plate Log">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Plate Log</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -262,8 +262,10 @@ details.hist summary::-webkit-details-marker { display: none; }
 /* routine editor */
 .editor { display: grid; gap: 10px; margin-bottom: 14px; border-color: var(--fg); }
 .lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
-.r-row, .r-head { display: grid; grid-template-columns: minmax(0, 1fr) 54px 72px 30px; gap: 8px; align-items: center; }
-.r-head { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.r-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 30px; gap: 6px 8px; align-items: end; padding: 10px 0 12px; border-top: 1px solid var(--line); }
+.r-row .r-name { grid-column: 1 / 4; }
+.r-row label { display: grid; gap: 3px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; min-width: 0; }
+.r-row .x { align-self: center; grid-row: 1; grid-column: 4; }
 
 /* progress */
 .p-controls { display: grid; gap: 10px; margin-top: 14px; }
@@ -530,6 +532,11 @@ img { max-width: 100%; }
     const w = first + (Math.min(n, pins) - 1) * per;
     return Math.round(conv(w, cfg.unit || 'kg', u) * 10) / 10;
   }
+  function nearestPin(cfg, w, u) {
+    const pins = cfg.pins, first = cfg.first > 0 ? cfg.first : cfg.total / pins;
+    const per = pins > 1 ? (cfg.total - first) / (pins - 1) : 0; const wk = conv(w, u, cfg.unit || 'kg');
+    return Math.max(1, Math.min(pins, per > 0 ? Math.round((wk - first) / per) + 1 : 1));
+  }
   const setLabel = (st, from, u) => fmtW(conv(st.w, from, u)) + '×' + st.r + (st.p ? ` (P${st.p})` : '');
   function setupPreview(s, u) {
     const total = num(s.total), pins = parseInt(s.pins, 10);
@@ -586,7 +593,7 @@ img { max-width: 100%; }
       state.draft.exercises.push({ id: uid(), name, mode: machineFor(name) || (last && last.sets.some((s) => s.p)) ? 'pin' : 'weight', sets });
       saveDraft();
     } else if (p.ctx === 'routine' && state.edit) {
-      state.edit.exercises.push({ name, sets: '3', reps: '8' });
+      state.edit.exercises.push({ name, sets: '3', reps: '8', wIn: '' });
     }
     p.q = ''; toast(`Added ${name}`); render();
     const el = $('#pk-q'); if (el) el.focus({ preventScroll: true });
@@ -716,13 +723,19 @@ img { max-width: 100%; }
 
   function routineEditor() {
     const r = state.edit;
-    const rows = r.exercises.map((e, i) => `<div class="r-row"><input class="field" id="re-n-${i}" data-rf="name" data-i="${i}" list="exlist" value="${esc(e.name)}" placeholder="Exercise" aria-label="Exercise ${i + 1} name" autocomplete="off">
-      <input class="field num" id="re-s-${i}" data-rf="sets" data-i="${i}" inputmode="numeric" value="${esc(e.sets)}" aria-label="Exercise ${i + 1} sets">
-      <input class="field num" id="re-r-${i}" data-rf="reps" data-i="${i}" value="${esc(e.reps)}" placeholder="8-12" aria-label="Exercise ${i + 1} reps">
-      <button type="button" class="x" data-act="r-remove-row" data-i="${i}" aria-label="Remove exercise ${i + 1}">×</button></div>`).join('');
+    const u = state.unit;
+    const rows = r.exercises.map((e, i) => {
+      const last = lastFor(e.name); const top = last ? last.sets.reduce((a, b) => (b.w > a.w ? b : a)) : null;
+      const ph = top ? 'last ' + fmtW(conv(top.w, last.unit, u)) : 'optional';
+      return `<div class="r-row"><input class="field r-name" id="re-n-${i}" data-rf="name" data-i="${i}" list="exlist" value="${esc(e.name)}" placeholder="Exercise" aria-label="Exercise ${i + 1} name" autocomplete="off">
+      <button type="button" class="x" data-act="r-remove-row" data-i="${i}" aria-label="Remove exercise ${i + 1}">×</button>
+      <label>Sets<input class="field num" id="re-s-${i}" data-rf="sets" data-i="${i}" inputmode="numeric" value="${esc(e.sets)}"></label>
+      <label>Reps<input class="field num" id="re-r-${i}" data-rf="reps" data-i="${i}" value="${esc(e.reps)}" placeholder="8-12"></label>
+      <label>Weight (${u})<input class="field num" id="re-w-${i}" data-rf="wIn" data-i="${i}" inputmode="decimal" value="${esc(e.wIn ?? '')}" placeholder="${esc(ph)}"></label></div>`;
+    }).join('');
     return `<div class="card editor"><label class="lbl" for="r-name">${state.routines.some((x) => x.id === r.id) ? 'Edit routine' : 'New routine'}</label>
       <input class="field" id="r-name" data-rf="rname" value="${esc(r.name)}" placeholder="Routine name, e.g. Upper A" autocomplete="off">
-      <div class="r-head"><span>Exercise</span><span style="text-align:center">Sets</span><span style="text-align:center">Reps</span><span></span></div>${rows}
+      <div>${rows}</div>
       ${r.exercises.length ? '' : '<p class="muted small" style="margin:0">No exercises yet. Search or filter below to add some.</p>'}
       ${state.picker && state.picker.ctx === 'routine' ? pickerPanel() : '<div><button type="button" class="btn sm" data-act="pk-open" data-ctx="routine">+ Add exercise</button></div>'}
       <div class="row"><button class="btn primary" data-act="r-save">Save routine</button><button class="btn" data-act="r-cancel">Cancel</button></div></div>`;
@@ -748,7 +761,7 @@ img { max-width: 100%; }
     for (const r of state.routines.slice().sort((a, b) => a.name.localeCompare(b.name))) {
       const key = 'rdel-' + r.id;
       h += `<div class="card"><div class="rr-name">${esc(r.name)}${r.example ? '<span class="chip">Starter</span>' : ''}</div>
-        <div class="rr-list" style="margin-top:4px">${(r.exercises || []).map((e) => `${esc(e.name)} <span style="font-family:var(--font-num)">${esc(e.sets)}×${esc(e.reps)}</span>`).join('<br>')}</div>
+        <div class="rr-list" style="margin-top:4px">${(r.exercises || []).map((e) => `${esc(e.name)} <span style="font-family:var(--font-num)">${esc(e.sets)}×${esc(e.reps)}${e.w > 0 ? ` @ ${fmtW(round2(conv(e.w, e.wu || 'kg', state.unit)))} ${state.unit}` : ''}</span>`).join('<br>')}</div>
         <div class="rr-actions"><button class="btn sm primary" data-act="start-routine" data-id="${r.id}">Start</button><button class="btn sm" data-act="edit-routine" data-id="${r.id}">Edit</button><button class="btn sm danger${armedCls(key)}" data-act="del-routine" data-id="${r.id}">${state.armed === key ? 'Tap again to delete' : 'Delete'}</button></div></div>`;
     }
     return h + '</div>' + mh;
@@ -988,20 +1001,24 @@ img { max-width: 100%; }
     const exercises = ((src && src.exercises) || []).map((e) => {
       if (fromSession) return { id: uid(), name: e.name, mode: e.sets.some((s) => s.p) || machineFor(e.name) ? 'pin' : 'weight', sets: e.sets.map((s) => ({ w: String(round2(conv(s.w, src.unit || 'kg', u))), p: s.p ? String(s.p) : '', r: String(s.r), done: false })) };
       const last = lastFor(e.name); const n = Math.max(1, Math.min(12, parseInt(e.sets, 10) || 3)); const reps = parseInt(e.reps, 10);
-      return { id: uid(), name: e.name, mode: machineFor(e.name) ? 'pin' : 'weight', target: `${n} × ${e.reps}`, sets: Array.from({ length: n }, (_, i) => {
+      const tw = e.w > 0 ? round2(conv(e.w, e.wu || 'kg', u)) : null; const cfg = machineFor(e.name);
+      return { id: uid(), name: e.name, mode: cfg ? 'pin' : 'weight', target: `${n} × ${e.reps}${tw != null ? ` @ ${fmtW(tw)} ${u}` : ''}`, sets: Array.from({ length: n }, (_, i) => {
         const ls = last && (last.sets[i] || last.sets[last.sets.length - 1]);
-        return { w: ls ? String(round2(conv(ls.w, last.unit, u))) : '', p: ls && ls.p ? String(ls.p) : '', r: isFinite(reps) ? String(reps) : '', done: false };
+        const w = tw != null ? String(tw) : ls ? String(round2(conv(ls.w, last.unit, u))) : '';
+        const pn = tw != null && cfg ? String(nearestPin(cfg, tw, u)) : ls && ls.p ? String(ls.p) : '';
+        return { w, p: pn, r: isFinite(reps) ? String(reps) : '', done: false };
       }) };
     });
     state.draft = { id: uid(), name: (src && src.name) || '', date: todayISO(), unit: u, startedAt: Date.now(), exercises };
     state.picker = exercises.length ? null : { ctx: 'draft', q: '', g: '' };
     saveDraft(); go('log');
   }
-  function routineFromExercises(name, exs) {
+  function routineFromExercises(name, exs, unit) {
     return { id: uid(), name, exercises: exs.filter((e) => norm(e.name)).map((e) => {
       const repsList = e.sets.map((s) => parseInt(s.r, 10)).filter((r) => r > 0);
       const lo = repsList.length ? Math.min(...repsList) : 8, hi = repsList.length ? Math.max(...repsList) : 8;
-      return { name: e.name.trim(), sets: Math.max(1, e.sets.length), reps: lo === hi ? String(lo) : `${lo}-${hi}` };
+      const ws = e.sets.map((s) => (e.mode === 'pin' && s.p ? pinWeight(machineFor(e.name), s.p, unit) : num(s.w))).filter((x) => x > 0);
+      return { name: e.name.trim(), sets: Math.max(1, e.sets.length), reps: lo === hi ? String(lo) : `${lo}-${hi}`, w: ws.length ? Math.max(...ws) : null, wu: unit };
     }) };
   }
 
@@ -1021,7 +1038,7 @@ img { max-width: 100%; }
     repeat: (b) => { const s = state.sessions.find((x) => x.id === b.dataset.id); if (s) startFrom(s, true); },
     'session-to-routine': async (b) => {
       const s = state.sessions.find((x) => x.id === b.dataset.id); if (!s) return;
-      if (await store.put('routines', routineFromExercises(s.name || 'Routine', s.exercises || []))) toast(`Saved “${s.name}” as a routine`);
+      if (await store.put('routines', routineFromExercises(s.name || 'Routine', s.exercises || [], s.unit || 'kg'))) toast(`Saved “${s.name}” as a routine`);
     },
     tick: (b) => { const ex = findEx(b.dataset.ex); if (!ex) return; const s = ex.sets[+b.dataset.i]; s.done = !s.done; saveDraft(); render(); },
     'set-add': (b) => { const ex = findEx(b.dataset.ex); if (!ex) return; const l = ex.sets[ex.sets.length - 1]; ex.sets.push({ w: l ? l.w : '', p: l ? l.p || '' : '', r: l ? l.r : '', done: false }); saveDraft(); render(); const el = document.getElementById(`${ex.mode === 'pin' ? 'p' : 'w'}-${ex.id}-${ex.sets.length - 1}`); if (el) el.focus(); },
@@ -1059,7 +1076,7 @@ img { max-width: 100%; }
     discard: () => { if (!arm('discard')) return; state.draft = null; saveDraft(); render(); toast('Session discarded'); },
     'draft-to-routine': async () => {
       const d = state.draft; if (!d.exercises.some((e) => norm(e.name))) { toast('Add at least one exercise first.'); return; }
-      if (await store.put('routines', routineFromExercises(d.name.trim() || 'My routine', d.exercises))) toast(`Saved “${d.name.trim() || 'My routine'}” as a routine`);
+      if (await store.put('routines', routineFromExercises(d.name.trim() || 'My routine', d.exercises, d.unit))) toast(`Saved “${d.name.trim() || 'My routine'}” as a routine`);
     },
     finish: async () => {
       const d = state.draft;
@@ -1100,14 +1117,14 @@ img { max-width: 100%; }
     'pk-close': () => { state.picker = null; render(); },
     'pk-add': (b) => pickExercise(b.dataset.name || ''),
     'new-routine': () => { state.edit = { id: uid(), name: '', exercises: [] }; state.picker = { ctx: 'routine', q: '', g: '' }; go('routines'); setTimeout(() => { const el = $('#r-name'); if (el) el.focus(); }, 0); },
-    'edit-routine': (b) => { const r = state.routines.find((x) => x.id === b.dataset.id); if (!r) return; state.edit = JSON.parse(JSON.stringify(r)); state.picker = null; render(); window.scrollTo(0, 0); },
+    'edit-routine': (b) => { const r = state.routines.find((x) => x.id === b.dataset.id); if (!r) return; state.edit = JSON.parse(JSON.stringify(r)); state.edit.exercises.forEach((e) => { e.wIn = e.w > 0 ? String(round2(conv(e.w, e.wu || 'kg', state.unit))) : ''; }); state.picker = null; render(); window.scrollTo(0, 0); },
     'del-routine': async (b) => { if (!arm('rdel-' + b.dataset.id)) return; if (await store.del('routines', b.dataset.id)) toast('Routine deleted'); },
     'r-add-row': () => { const l = state.edit.exercises[state.edit.exercises.length - 1]; state.edit.exercises.push({ name: '', sets: l ? l.sets : '3', reps: l ? l.reps : '8' }); render(); const el = document.getElementById('re-n-' + (state.edit.exercises.length - 1)); if (el) el.focus(); },
     'r-remove-row': (b) => { state.edit.exercises.splice(+b.dataset.i, 1); render(); },
     'r-cancel': () => { state.edit = null; state.picker = null; render(); },
     'r-save': async () => {
       const r = state.edit; const name = r.name.trim();
-      const exercises = r.exercises.filter((e) => norm(e.name)).map((e) => ({ name: e.name.trim(), sets: Math.max(1, Math.min(12, parseInt(e.sets, 10) || 3)), reps: String(e.reps || '').trim() || '8' }));
+      const exercises = r.exercises.filter((e) => norm(e.name)).map((e) => { const w = num(e.wIn); return { name: e.name.trim(), sets: Math.max(1, Math.min(12, parseInt(e.sets, 10) || 3)), reps: String(e.reps || '').trim() || '8', w: w > 0 ? w : null, wu: state.unit }; });
       if (!name) { toast('Give the routine a name.'); $('#r-name')?.focus(); return; }
       if (!exercises.length) { toast('Add at least one exercise.'); return; }
       const out = { id: r.id, name, exercises }; state.edit = null; state.picker = null;
